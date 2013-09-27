@@ -239,6 +239,19 @@ public:
 		return true;
 	}
 
+
+	//backend - both this backed exploitation techniques can be used also since winXP till windows 8 CP
+	__checkReturn bool FreelistFreeToOwnAttack(__in short n)
+	{
+		return CW7Heap::FreelistFreeToOwnAttack(n);		
+	}
+
+	//usefull only on x86 third parties binaries! (disable on failure cookie == false)
+	__checkReturn bool FreelistSearchToOwnHeapAttack(__in short n)
+	{
+		return CW7Heap::FreelistSearchToOwnHeapAttack(n);
+	}
+
 protected:
 	//exactly purpose is to get third data bin ...
 	__checkReturn bool GetNextUserDataBin(__in void* lfhChunk, __in WORD blocksStride, __out HEAP_USERDATA_HEADER** userDataHeader, __in BYTE n)
